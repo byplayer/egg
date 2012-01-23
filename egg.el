@@ -615,7 +615,7 @@ Return the output lines as a list of strings."
 (defsubst egg-buf-git-name (&optional buf)
   "return the repo-relative name of the file visited by BUF.
 if BUF was nil then use current-buffer"
-  (egg-file-git-name (buffer-file-name buf)))
+  (egg-file-git-name (file-truename (buffer-file-name buf))))
 
 (defsubst egg-files-git-name (files)
   "return the repo-relative name for each file in the list of files FILES."
