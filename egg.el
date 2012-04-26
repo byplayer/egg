@@ -428,7 +428,8 @@ Different versions of git have different names for this subdir."
               (const :tag "File Log Buffer" :file-log)
               (const :tag "RefLog Buffer"   :reflog)
               (const :tag "Diff Buffer"     :diff)
-              (const :tag "Commit Buffer"   :commit)))
+              (const :tag "Commit Buffer"   :commit)
+              (const :tag "Stash Buffer"    :stash)))
 
 (define-widget 'egg-quit-window-actions-set 'lazy
   "Custom Type for quit-window actions."
@@ -1672,7 +1673,8 @@ position that would remain visible when the section is hidden.
 KEYMAP is the local/context keymap for the section.
 NAVIGATION is the navigation id of the section. NAVIGATION can also
 a function to call to compute the navigation id of the section."
-  (let ((nav (cond ((functionp navigation)
+  (let ((nav (cond ((and (not (eq navigation 'file))
+                         (functionp navigation))
                     (funcall navigation sect-type section beg end))
                    ((null navigation) beg)
                    (t navigation))))
@@ -1690,9 +1692,13 @@ a function to call to compute the navigation id of the section."
   "Build a hunk info NAME from BEG to END based on DIFF.
 Hunk info contains name and posistions of the hunk. Positions are offsets
 from DIFF because it can the whole diff can be pushed around inside
-the buffer."
+the buffer. 
+
+The fourth element of hunk info is NIL and is a placeholder for
+HUNK-RANGES list to be placed there by `egg-calculate-hunk-ranges'
+"
   (let ((b (nth 1 diff)))
-    (list name (- beg b) (- end b))))
+    (list name (- beg b) (- end b) nil)))
 
 (defsubst egg-make-diff-info (name beg end head-end)
   "Build a diff info NAME from BEG to END. HEAD-END is the end position
@@ -1948,7 +1954,7 @@ See `egg-decorate-diff-sequence'."
                      (point)))
   (let ((commit (get-text-property pos :commit))
         (diff-info egg-diff-buffer-info)
-        src src-name dst commit)
+        src src-name dst)
     (find-file file)
     (cond (commit
            (setq src (egg-describe-rev (concat commit "^"))
@@ -1960,14 +1966,19 @@ See `egg-decorate-diff-sequence'."
     (unless src (error "Ooops!"))
     (egg-file-do-ediff src src-name dst nil 'ediff2)))
 
-(defun egg-hunk-compute-line-no (hunk-header hunk-beg)
-  "Calaculate the effective line number in the original file based
+(defun egg-hunk-compute-line-no (hunk-header hunk-beg &optional hunk-ranges)
+  "Calculate the effective line number in the original file based
 on the position of point in a hunk. HUNK-HEADER is the header and
 HUNK-BEG is the starting position of the current hunk."
   (let ((limit (line-end-position))
-        (line (string-to-number 
-               (nth 2 (save-match-data
-                        (split-string hunk-header "[ @,\+,-]+" t)))))
+        (line
+         (or
+          (when hunk-ranges
+            ;; 3rd element of real range
+            (third (third hunk-ranges)))
+          (string-to-number 
+           (nth 2 (save-match-data
+                    (split-string hunk-header "[ @,\+,-]+" t))))))
         (adjust 0))
     (save-excursion
       (goto-char hunk-beg)
@@ -1981,27 +1992,30 @@ HUNK-BEG is the starting position of the current hunk."
 (defsubst egg-hunk-info-at (pos)
   "Rebuild the hunk info at POS.
 Hunk info are relative offsets. This function compute the
-physical offsets."
+physical offsets. The hunk-line may be NIL if this is not status
+or commit buffer and `egg-calculate-hunk-ranges' was
+not called"
   (let* ((diff-info (get-text-property pos :diff))
          (head-beg (nth 1 diff-info))
          (hunk-info (get-text-property pos :hunk))
          (hunk-beg (+ (nth 1 hunk-info) head-beg))
-         (hunk-end (+ (nth 2 hunk-info) head-beg)))
-    (list (car diff-info) (car hunk-info) hunk-beg hunk-end)))
+         (hunk-end (+ (nth 2 hunk-info) head-beg))
+         (hunk-ranges (nth 3 hunk-info)))
+    (list (car diff-info) (car hunk-info) hunk-beg hunk-end hunk-ranges)))
 
-(defun egg-hunk-section-cmd-visit-file (file hunk-header hunk-beg
-                                             &rest ignored)
+(defun egg-hunk-section-cmd-visit-file (file hunk-header hunk-beg hunk-end
+                                             hunk-ranges &rest ignored)
   "Visit FILE and goto the current line of the hunk."
   (interactive (egg-hunk-info-at (point)))
-  (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg)))
+  (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg hunk-ranges)))
     (find-file file)
     (goto-line line)))
 
-(defun egg-hunk-section-cmd-visit-file-other-window (file hunk-header hunk-beg
-                                                          &rest ignored)
+(defun egg-hunk-section-cmd-visit-file-other-window (file hunk-header hunk-beg hunk-end
+                                                          hunk-ranges &rest ignored)
   "Visit FILE in other-window and goto the current line of the hunk."
   (interactive (egg-hunk-info-at (point)))
-  (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg)))
+  (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg hunk-ranges)))
     (find-file-other-window file)
     (goto-line line)))
 
@@ -2539,8 +2553,7 @@ rebase session."
                                :hunk-map egg-unstaged-hunk-section-map
                                :cc-diff-map egg-unmerged-diff-section-map
                                :cc-hunk-map egg-unmerged-hunk-section-map
-                               :conflict-map egg-unmerged-hunk-section-map
-                               )))
+                               :conflict-map egg-unmerged-hunk-section-map)))
 
 (defun egg-sb-insert-staged-section (title &rest extra-diff-options)
   "Insert the staged changes section into the status buffer."
@@ -2563,6 +2576,443 @@ rebase session."
                                :dst-prefix "INDEX:/"
                                :diff-map egg-staged-diff-section-map
                                :hunk-map egg-staged-hunk-section-map)))
+
+(defvar egg-hunk-ranges-cache nil
+  "A list of (FILENAME HUNK-RANGE-INFO ...)) for each file in the
+buffer. Each HUNK-RANGE-INFO has the form of (SECTION BUFFER-RANGE REAL-RANGE SINGLE-RANGE)
+
+SECTION is either 'staged or 'unstaged
+
+Each RANGE is a list of four numbers (L1 S1 L2 S2) from the \"@@
+-L1,S1 +L2,S2 @@\" hunk header.
+
+Each of the three ranges have the following meaning:
+
+* BUFFER-RANGE : The parsed number from the git hunk header in
+  the buffer. They change as hunks are staged or unstaged. In the
+  unstaged area, line numbers refer to actual working directory
+  file. In the staged area, line numbers refer to the INDEX copy
+  of the file, with all other staged hunks also applied
+
+* REAL-RANGE : For the unstaged hunks, same as BUFFER-RANGE, but
+  for the staged hunks, its the line numbers are in relation to
+  working directory file, rather then INDEX + staged changes. This range
+  will stay constant if hunk is staged or unstaged, but may change
+  if new unstaged changes are added to what Egg buffer reflects.
+
+* SINGLE-RANGE : This is a hunk range, artificially adjusted so
+  that line numbers are in relation to the INDEX, as if this hunk
+  was the only hunk staged.. This range will remain constant, when
+  hunks are staged, unstaged, or new unstaged hunks are introduced, as long
+
+  It may change only if user had extended the hunk by changing
+  more lines abutting it, so that the hunk is extended or
+  shrunken.
+
+The only range that we really need, is SINGLE-RANGE, because it
+is as close as we can get to unique hunk identifier, that will
+remain constant in most circumstances.. But we need the other two
+ranges in order to calculate the SINGLE-RANGE
+
+For unstaged hunk, the SINGLE range is REAL-RANGE, adjusted for the total delta
+of all staged and unstaged hunks before it
+
+For staged hunk, the SINGLE range is BUFFER-RANGE adjusted for for the total
+delta of staged hunks before it.
+")
+
+(defvar egg-section-visibility-info nil
+  "Info on invisibility of file and its hunks before stage or unstage.
+Each member of this list is (FILE-OR-SECTION VISIBILITY UNSTAGED-VISIBILITY
+LINE-NUMBERS)
+
+* FILE-OR-SECTION     : When string its a file, otherwise :NAVIGATION property
+                      of the section
+
+* VISIBILITY          : One of the following values:
+
+  * :HIDDEN   : File is hidden
+  * :VISIBLE  : File is showing
+  * NIL       : File is not present in the section (only for files)
+
+* UNSTAGED-VISIBILITY : Only for files, same as VISIBILITY but
+  in unstaged section
+
+* LINE-NUMBERS        : Real line numbers of hidden hunks (only for files)
+
+The reason we use line numbers and not hunk ids, is because under
+git hunk ids will not be the same, if hunks that are before them
+in the same file are unstaged")
+
+(defvar egg-around-point-section-info nil
+  "The list of three elements (BEFORE-POINT AT-POINT
+AFTER-POINT), that describe the previous, current and next
+visible section of the egg status or diff buffer.
+
+Each element is a list (FILE-OR-SECTION SECTION HUNK-LINE-NUMBER) 
+
+* FILE-OR-SECTION : When string its a file, otherwise value of
+  :navigation property of the section
+
+* SECTION : The value of :section property
+
+* HUNK-LINE-NUMBER : Real hunk line number in the unstaged file
+
+This information is used to restore the point to a good place
+after buffer is refreshed, for example if last hunk in a diff is
+staged or unstaged, point will move to the next one or previous
+if no next hunk existed, or to the section if it was last hunk in
+the section.
+")
+
+(make-variable-buffer-local 'egg-hunk-ranges-cache)
+(make-variable-buffer-local 'egg-section-visibility-info)
+(make-variable-buffer-local 'egg-around-point-section-info)
+
+
+(defun egg-get-hunk-range (pos)
+  "Return the 4 numbers from hunk header as list of integers"
+  (destructuring-bind (file hunk-header hunk-beg &rest ignore)
+      (egg-hunk-info-at pos)
+    (let* ((range (save-match-data
+                    (split-string hunk-header "[ @,\+,-]+" t))))
+      (mapcar 'string-to-number range))))
+
+(defun egg-ensure-hunk-ranges-cache ()
+  "Returns `egg-hunk-ranges-cache' re-creating it if its NIL."
+  (or egg-hunk-ranges-cache
+      (save-excursion
+        (let ((pos (point-min)) nav
+              last-file
+              list)
+          (while (setq pos (next-single-property-change (1+ pos) :navigation))
+            (let ((sect (get-text-property pos :section))
+                  (type (get-text-property pos :sect-type))
+                  (file (first (get-text-property pos :diff)))
+                  (nav (get-text-property pos :navigation)))
+              (when (and nav file sect)
+                (when (and (eq type :hunk))
+                  (when (not (equal last-file file))
+                    (push (setq list (cons file nil)) egg-hunk-ranges-cache)
+                    (setq last-file file))
+                  (let* ((range (egg-get-hunk-range pos))
+                         (elem (list sect range
+                                     (copy-list range)
+                                     (copy-list range)))
+                         (hunk-info (get-text-property pos :hunk)))
+                    (setcdr list (cons elem (cdr list)))
+                    (setf (fourth hunk-info) elem))))))
+          egg-hunk-ranges-cache))))
+
+(defun egg-unstaged-lines-delta-before-hunk (file line)
+  "Count how many lines any unstaged patches add before LINE line number"
+  (let ((cnt 0))
+    (dolist (elem (cdr (assoc file (egg-ensure-hunk-ranges-cache))))
+      (let ((sect (first elem))
+            (range (second elem))
+            (real-range (third elem))
+            (single-range (fourth elem)))
+        (when (eq sect 'unstaged)
+          (destructuring-bind (l1 s1 l2 s2) range
+            (when (< l2 line)
+              ;; Increment adjustment by how many lines were added
+              (incf cnt (- s2 s1)))))))
+    cnt))
+
+(defun egg-staged-lines-delta-before-hunk (file line)
+  "Count how many lines any staged patches add before LINE line number"
+  (let ((cnt 0))
+    (dolist (elem (cdr (assoc file (egg-ensure-hunk-ranges-cache))))
+      (let ((sect (first elem))
+            (range (second elem))
+            (real-range (third elem))
+            (single-range (fourth elem)))
+        (when (eq sect 'staged)
+          (destructuring-bind (l1 s1 l2 s2) range
+            (when (< l2 line)
+              ;; Increment adjustment by how many lines were added
+              (incf cnt (- s2 s1)))))))
+    cnt))
+
+(defun egg-calculate-hunk-ranges ()
+  "Calculate the correct line number in the real unstaged file,
+of each hunk in the current buffer, and store in the fourth
+element of the :hunk info"
+
+  ;; Refresh it
+  (setq egg-hunk-ranges-cache nil)
+  (egg-ensure-hunk-ranges-cache)
+
+  ;; First create correct real range, for all staged changes
+  (save-excursion
+    (let ((pos (point-min)) nav
+          last-file
+          list)
+      ;; first do all staged
+      (while (setq pos (next-single-property-change (1+ pos) :navigation))
+        (when (eq (get-text-property pos :sect-type) :hunk)
+          (let* ((hunk-info (get-text-property pos :hunk))
+                 (hunk-ranges (fourth hunk-info))
+                 (file (first (get-text-property pos :diff))))
+            (when (eq (get-text-property pos :section) 'staged)
+              ;; set real range
+              (let* ((real-range (third hunk-ranges))
+                     (delta (egg-unstaged-lines-delta-before-hunk
+                             file
+                             (third real-range))))
+                ;; (incf (first real-range) delta)
+                (incf (third real-range) delta))))))))
+  ;; Now create correct single-range for both staged and unstaged changes
+  (save-excursion
+    (let ((pos (point-min)) nav
+          last-file
+          list)
+      (while (setq pos (next-single-property-change (1+ pos) :navigation))
+        (when (eq (get-text-property pos :sect-type) :hunk)
+          (let* ((hunk-info (get-text-property pos :hunk))
+                 (file (first (get-text-property pos :diff)))
+                 (hunk-ranges (fourth hunk-info))
+                 (buffer-range (second hunk-ranges))
+                 (real-range (third hunk-ranges))
+                 (single-range (fourth hunk-ranges)))
+            (if (eq (get-text-property pos :section) 'unstaged)
+                (let* (
+                       (delta-unstaged
+                        (egg-unstaged-lines-delta-before-hunk
+                         file
+                         (third real-range)))
+                       (delta-staged
+                        (egg-staged-lines-delta-before-hunk
+                         file
+                         (- (third buffer-range)
+                            delta-unstaged))))
+                  (decf (first single-range) delta-staged)
+                  (decf (third single-range) (+ delta-unstaged delta-staged)))
+              (let ((delta
+                     (egg-staged-lines-delta-before-hunk
+                      file (third buffer-range))))
+                ;; (decf (first single-range) delta)
+                (decf (third single-range) delta)))))))))
+
+
+(defun egg-hunk-real-line-number (&optional pos)
+  "Return hunks line number in the unstaged file"
+  (multiple-value-bind (file hunk-header hunk-beg hunk-end
+                             ranges &rest ignored)
+      (egg-hunk-info-at (or pos (point)))
+    (or (when ranges (third (third ranges)))
+        (string-to-number 
+         (nth 2 (save-match-data
+                  (split-string hunk-header "[ @,\+,-]+" t)))))))
+
+(defun egg-save-section-visibility ()
+  "Save the visibility status of each file, and each hunk in the
+buffer into `egg-section-visibility-info'. Hunks are indexed by
+their real file line number. 
+
+Also the the first section after the point in `my-egg-stage/unstage-point"
+  (setq egg-section-visibility-info nil)
+  (setq egg-around-point-section-info (list nil nil nil))
+  (let* ((pos (point-min)) nav
+         (nav-at-point (get-text-property (point) :navigation))
+         (nav-at-point-type (get-text-property (point) :sect-type))
+         (nav-at-point-sect (get-text-property (point) :section))
+         (nav-next
+          (let (nav (pos (next-single-property-change (point) :navigation)))
+            (while (and pos (or (invisible-p pos)
+                                (eq nav-at-point
+                                    (get-text-property pos :navigation))
+                                (not (eq nav-at-point-type
+                                         (get-text-property pos :sect-type)))
+                                (and (not (eq nav-at-point-type :section))
+                                     (not (eq nav-at-point-sect
+                                              (get-text-property pos :section))))))
+              (setq pos (next-single-property-change pos :navigation)))
+            (and pos (get-text-property pos :navigation))))
+         (nav-prev
+          (let (nav (pos (previous-single-property-change (point) :navigation)))
+            (and pos (setq pos (line-beginning-position)))
+            (while (and pos
+                        (or (invisible-p pos)
+                            (eq nav-at-point
+                                (get-text-property pos :navigation))
+                            (not (eq nav-at-point-type
+                                     (get-text-property pos :sect-type)))
+                            (and (not (eq nav-at-point-type :section))
+                                 (not (eq nav-at-point-sect
+                                          (get-text-property pos :section))))))
+              (setq pos (previous-single-property-change pos :navigation)))
+            (and pos (get-text-property pos :navigation)))))
+    (while (setq pos (next-single-property-change (min (1+ pos) (point-max)) :navigation))
+      (let* ((sect (get-text-property pos :section))
+             (type (get-text-property pos :sect-type))
+             (file (first (get-text-property pos :diff)))
+             (nav (get-text-property pos :navigation))
+             (hunk-ranges (fourth (get-text-property pos :hunk)))
+             (file-or-sect (or file nav)))
+        ;; Save current section visibility
+        (when (and nav sect)
+          (let ((info
+                 (or (assoc file-or-sect egg-section-visibility-info)
+                     (first (push (list file-or-sect nil nil nil)
+                                  egg-section-visibility-info))))
+                (state (if (assoc nav buffer-invisibility-spec) :hidden :visible)))
+            (cond ((and (eq sect 'staged) (eq type :diff))
+                   (setf (second info) state))
+                  ((and (eq sect 'unstaged) (eq type :diff))
+                   (setf (third info) state))
+                  ((and (eq type :hunk))
+                   (push (list hunk-ranges state)
+                         (fourth info)))
+                  ((not (memq type '(:hunk :diff)))
+                   ;; some other section like help or entire staged/unstaged
+                   (setf (second info) state)))))
+        ;; Remember previous, current and next sections at point
+        (cond ((eq nav nav-prev)
+               (setf (first egg-around-point-section-info)
+                     (list file-or-sect sect hunk-ranges)))
+              ((eq nav nav-at-point)
+               (setf (second egg-around-point-section-info)
+                     (list file-or-sect sect hunk-ranges)))
+              ((eq nav nav-next)
+               (setf (third egg-around-point-section-info)
+                     (list file-or-sect sect hunk-ranges))))))))
+
+(defun egg-restore-section-visibility ()
+  "Restore the visibility of sections and hunks"
+  (let* ( ;; these are sections before refresh
+         (before-point (first egg-around-point-section-info))
+         (at-point (second egg-around-point-section-info))
+         (after-point (third egg-around-point-section-info))
+         restore-pt restore-before-pt restore-after-pt
+         at-point-section-same-p
+         (at-point-was-file-or-hunk-p (stringp (first at-point))))
+    (let ((pos (point-min)))
+      (while (setq pos (next-single-property-change (1+ pos) :navigation))
+        (let* ((sect (get-text-property pos :section))
+               (type (get-text-property pos :sect-type))
+               (file (first (get-text-property pos :diff)))
+               (nav (get-text-property pos :navigation))
+               (file-or-sect (or file nav))
+               (hunk-ranges (when (eq type :hunk)
+                              (fourth (get-text-property pos :hunk)))))
+          (when (and nav file-or-sect)
+            (let ((info (assoc file-or-sect egg-section-visibility-info)))
+              (when info
+                (cond
+                 ((eq type :diff)
+                  (let* ((was-present-here
+                          (if (eq sect 'staged)
+                              (second info)
+                            (third info)))
+                         (was-present-there
+                          (if (eq sect 'staged)
+                              (third info)
+                            (second info)))
+                         (was-invisible-here (eq :hidden was-present-here))
+                         (was-invisible-there (eq :hidden was-present-there)))
+                    ;; only make invisible if it was invisible in that section before
+                    ;; or if it was not present, and opposite section was invisible
+                    (when (and was-invisible-there
+                               (or
+                                was-invisible-here
+                                (not was-present-here))
+                               (not (assoc nav buffer-invisibility-spec)))
+                      (add-to-invisibility-spec (cons nav t)))))
+                 ;; for hunks, unconditionally restore invisibility
+                 ((and (eq type :hunk))
+                  (let* ((old-state
+                          (find-if
+                           (lambda (elem)
+                             (destructuring-bind (old-ranges old-state)
+                                 elem
+                               (equal (fourth hunk-ranges)
+                                      (fourth old-ranges))))
+                           (fourth info)))
+                         (was-invisile (and old-state (eq (second old-state) :hidden)))
+                         (is-invisible (assoc nav buffer-invisibility-spec)))
+                    (cond ((and was-invisile (not is-invisible))
+                           (add-to-invisibility-spec (cons nav t)))
+                          ;; below restores visibility, if it was visible before
+                          ;; so that moving folded hunk to staged, then unfolding it
+                          ;; and moving it back, moves it back unfolded
+                          ((and (not was-invisile) is-invisible)
+                           (remove-from-invisibility-spec (cons nav t))))))))))
+          (when file-or-sect
+            (cond
+             ;; when point was not on file or hunk, simply restore it
+             ((and (not at-point-was-file-or-hunk-p)
+                   (eq nav (first at-point)))
+              (setq restore-pt (save-excursion
+                                 (goto-char pos)
+                                 (line-beginning-position))))
+             ;; when point was on hunk or file, see if its section had changed
+             ((and at-point-was-file-or-hunk-p
+                   (equal file-or-sect (first at-point))
+                   (equal (fourth hunk-ranges)
+                          (fourth (third at-point))))
+              (when (setq at-point-section-same-p (eq sect (second at-point)))
+                (setq restore-pt (save-excursion
+                                   (goto-char pos)
+                                   (line-beginning-position)))))
+             ;; need these in case piece where point was had moved
+             ((and (equal file-or-sect (first before-point))
+                   (equal (fourth hunk-ranges)
+                          (fourth (third before-point)))
+                   (equal sect (second before-point)))
+              (setq restore-before-pt (save-excursion
+                                        (goto-char pos)
+                                        (let ((end
+                                               (1- (next-single-property-change
+                                                    (point) :navigation nil
+                                                    (1+ (point-max))))))
+                                          (unless
+                                              (save-excursion
+                                                (goto-char end)
+                                                (invisible-p (line-beginning-position)))
+                                            (goto-char end)))
+                                        ;; TODO move back until visible
+                                        (line-beginning-position))))
+             ((and (equal file-or-sect (first after-point))
+                   (equal (fourth hunk-ranges)
+                          (fourth (third after-point)))
+                   (equal sect (second after-point)))
+              (setq restore-after-pt (save-excursion
+                                       (goto-char pos)
+                                       (line-beginning-position)))))))))
+    (cond (restore-pt
+           (goto-char restore-pt))
+          ;; If point was at file/hunk, and there was one after
+          ;; it (in the same section), then move point to it
+          ((and at-point-was-file-or-hunk-p
+                (not at-point-section-same-p)
+                (stringp (first after-point))
+                restore-after-pt)
+           (goto-char restore-after-pt))
+          ;; Otherwise if there was file/hunk before it
+          ((and at-point-was-file-or-hunk-p
+                (not at-point-section-same-p)
+                (stringp (first before-point))
+                restore-before-pt)
+           (goto-char restore-before-pt))
+          ;; Otherwise if point was on file/hunk, move point
+          ;; to the section it was in
+          ((and at-point-was-file-or-hunk-p
+                (setq restore-pt
+                      (let ((pos (point-min)))
+                        (while (and pos (not (eq (second at-point)
+                                                 (get-text-property pos :section))))
+                          (setq pos (next-single-property-change pos :section)))
+                        pos)))
+           (goto-char restore-pt))
+          ;; Should not happen (somehow file section had disappeared)
+          (t ;; (when at-point
+             ;;   (warn "Unable to find section %S that file %s was in"
+             ;;         (second at-point)
+             ;;         (first at-point)))
+             (if (setq restore-pt (or restore-before-pt restore-after-pt))
+                 (goto-char restore-pt)
+               (goto-char (point-min)))))))
 
 (defun egg-checkout-ref (&optional default)
   "Prompt a revision to checkout. Default is DEFAULT."
@@ -2595,7 +3045,7 @@ rebase session."
         (add-to-invisibility-spec (cons nav t))))))
 
 (defsubst egg-buffer-maybe-hide-all ()
-  "If requsted, hide all sections in current special egg buffer.
+  "If requested, hide all sections in current special egg buffer.
 See `egg-buffer-hide-sub-blocks-on-start'."
   (let ((sect-type (cdr (assq major-mode 
                               egg-buffer-hide-section-type-on-start))))
@@ -2618,17 +3068,27 @@ See `egg-buffer-hide-help-on-start'."
 If INIT was not nil, then perform 1st-time initializations as well."
   (with-current-buffer buf
     (let ((inhibit-read-only t)
-          (orig-pos (point)))
-      (erase-buffer)
-
-      (dolist (sect egg-status-buffer-sections)
-        (cond ((eq sect 'repo) (egg-sb-insert-repo-section))
-              ((eq sect 'unstaged) (egg-sb-insert-unstaged-section "Unstaged Changes:"))
-              ((eq sect 'staged) (egg-sb-insert-staged-section "Staged Changes:"))
-              ((eq sect 'untracked) (egg-sb-insert-untracked-section))))
-      (if init (egg-buffer-maybe-hide-all))
-      (if init (egg-buffer-maybe-hide-help "help" 'repo))
-      (goto-char orig-pos))))
+          (win (get-buffer-window buf)))
+      ;; Emacs tries to be too smart, if we erase and re-fill the buffer
+      ;; that is currently being displayed in the other window,
+      ;; it remembers it, and no matter where we move the point, it will
+      ;; force it to be at (point-min). Making a buffer selected
+      ;; while we erase and re-fill it, seems to fix this behavour
+      (save-selected-window
+        (when win
+          (select-window win t))
+        (egg-save-section-visibility)
+        (erase-buffer)
+        (dolist (sect egg-status-buffer-sections)
+          (cond ((eq sect 'repo) (egg-sb-insert-repo-section))
+                ((eq sect 'unstaged) (egg-sb-insert-unstaged-section "Unstaged Changes:"))
+                ((eq sect 'staged) (egg-sb-insert-staged-section "Staged Changes:"))
+                ((eq sect 'untracked) (egg-sb-insert-untracked-section))))
+        (egg-calculate-hunk-ranges)
+        (if init (egg-buffer-maybe-hide-all))
+        (if init (egg-buffer-maybe-hide-help "help" 'repo))
+        (egg-restore-section-visibility)
+       ))))
 
 (defun egg-internal-background (proc msg)
   "Background job sentinel."
@@ -3346,6 +3806,7 @@ If INIT was not nil, then perform 1st-time initializations as well."
 (defun egg-commit-log-buffer-show-diffs (buf &optional init)
   (with-current-buffer buf
     (let ((inhibit-read-only t) beg)
+      (egg-save-section-visibility)
       (goto-char egg-log-msg-diff-beg)
       (delete-region (point) (point-max))
       (setq beg (point))
@@ -3357,10 +3818,11 @@ If INIT was not nil, then perform 1st-time initializations as well."
                (egg-sb-insert-unstaged-section "Deferred Changes:"))
               ((eq sect 'untracked)
                (egg-sb-insert-untracked-section))))
-
+      (egg-calculate-hunk-ranges)
       (put-text-property beg (point) 'read-only t)
       (put-text-property beg (point) 'front-sticky nil)
       (if init (egg-buffer-maybe-hide-all))
+      (egg-restore-section-visibility)
       (force-window-update buf))))
 
 (define-egg-buffer commit "*%s-commit@%s*"
@@ -4245,6 +4707,7 @@ If INIT was not nil, then perform 1st-time initializations as well."
      commit)))
 
 (defun egg-log-buffer-create-new-branch (pos &optional force)
+  "Create a new branch, without checking it out."
   (interactive "d\nP")
   (let ((rev (egg-log-buffer-get-rev-at pos)))
     (when (egg-do-create-branch
@@ -4254,6 +4717,7 @@ If INIT was not nil, then perform 1st-time initializations as well."
       (funcall egg-buffer-refresh-func (current-buffer)))))
 
 (defun egg-log-buffer-start-new-branch (pos &optional force)
+  "Create a new branch, and make it a new HEAD"
   (interactive "d\nP")
   (let ((rev (egg-log-buffer-get-rev-at pos :symbolic :no-HEAD)))
     (when (egg-do-create-branch
@@ -5241,7 +5705,8 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
 ;;; stash
 ;;;========================================================
 (defsubst egg-list-stash (&optional ignored)
-  (egg-git-ok t "stash" "list" "--pretty=oneline"))
+  (egg-git-ok t "stash" "list" ;; "--pretty=oneline"
+              ))
 
 (define-egg-buffer stash "*%s-stash@%s*"
   (egg-file-log-buffer-mode)
@@ -5951,6 +6416,7 @@ current file contains unstaged changes."
   (define-key map (kbd "h") 'egg-file-log)
   (define-key map (kbd "o") 'egg-file-checkout-other-version)
   (define-key map (kbd "s") 'egg-status)
+  (define-key map (kbd "S") 'egg-stash)
   (define-key map (kbd "u") 'egg-file-cancel-modifications)
   (define-key map (kbd "v") 'egg-next-action)
   (define-key map (kbd "w") 'egg-commit-log-edit)
