@@ -2682,9 +2682,15 @@ the section.
   "Return the 4 numbers from hunk header as list of integers"
   (destructuring-bind (file hunk-header hunk-beg &rest ignore)
       (egg-hunk-info-at pos)
-    (let* ((range (save-match-data
-                    (split-string hunk-header "[ @,\+,-]+" t))))
-      (mapcar 'string-to-number range))))
+    (let* ((range-as-strings
+            (save-match-data
+              (split-string hunk-header "[ @,\+,-]+" t)))
+           (range
+            (mapcar 'string-to-number range-as-strings)))
+      (if (/= 6 (length range))
+          range
+        (append (subseq range 0 2)
+                  (subseq range 4))))))
 
 (defun egg-ensure-hunk-ranges-cache ()
   "Returns `egg-hunk-ranges-cache' re-creating it if its NIL."
@@ -2721,10 +2727,10 @@ the section.
             (real-range (third elem))
             (single-range (fourth elem)))
         (when (eq sect 'unstaged)
-          (destructuring-bind (l1 s1 l2 s2) range
+          (destructuring-bind (l1 s1 l2 &optional s2) range
             (when (< l2 line)
               ;; Increment adjustment by how many lines were added
-              (incf cnt (- s2 s1)))))))
+              (incf cnt (- (or s2 s1) s1)))))))
     cnt))
 
 (defun egg-staged-lines-delta-before-hunk (file line)
@@ -2736,10 +2742,10 @@ the section.
             (real-range (third elem))
             (single-range (fourth elem)))
         (when (eq sect 'staged)
-          (destructuring-bind (l1 s1 l2 s2) range
+          (destructuring-bind (l1 s1 l2 &optional s2) range
             (when (< l2 line)
               ;; Increment adjustment by how many lines were added
-              (incf cnt (- s2 s1)))))))
+              (incf cnt (- (or s2 s1) s1)))))))
     cnt))
 
 (defun egg-calculate-hunk-ranges ()
