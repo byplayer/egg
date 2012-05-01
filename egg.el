@@ -1,4 +1,4 @@
-;;; egg -- Emacs Got Git
+;;; egg.el -- Emacs Got Git
 ;;
 ;; A magit fork
 ;; 
@@ -3034,10 +3034,19 @@ Also the the first section after the point in `my-egg-stage/unstage-point"
   (egg-do-checkout (completing-read "checkout: " (egg-all-refs)
                                     nil nil (or default "HEAD"))))
 
+(defun invoked-interactively-p ()
+  "wrapper for checking if the function was invoked interactively,
+works around the deprecation of 'interactive-p' after Emacs 23.2"
+  (if (> emacs-major-version 23)
+      (called-interactively-p 'interactive)
+    (if (> emacs-minor-version 2)
+        (called-interactively-p 'interactive)
+      (interactive-p))))
+
 (defsubst egg-buffer-show-all ()
   (interactive)
   (setq buffer-invisibility-spec nil)
-  (if (interactive-p)
+  (if (invoked-interactively-p)
       (force-window-update (current-buffer))))
 
 (defsubst egg-buffer-hide-all ()
@@ -3047,7 +3056,7 @@ Also the the first section after the point in `my-egg-stage/unstage-point"
     (while (setq pos (next-single-property-change (1+ pos) :navigation))
       (setq nav (get-text-property pos :navigation))
       (add-to-invisibility-spec (cons nav t))))
-  (if (interactive-p)
+  (if (invoked-interactively-p)
       (force-window-update (current-buffer))))
 
 (defsubst egg-buffer-hide-section-type (sect-type)
@@ -3311,14 +3320,15 @@ If INIT was not nil, then perform 1st-time initializations as well."
 (defun egg-status (&optional select caller)
   (interactive "P")
   (let* ((egg-internal-current-state 
-          (egg-repo-state (if (interactive-p) :error-if-not-git)))
+	  (egg-repo-state (if (invoked-interactively-p) :error-if-not-git)))
          (buf (egg-get-status-buffer 'create)))
     (with-current-buffer buf
       (egg-status-buffer-redisplay buf 'init))
     (cond ((eq caller :sentinel) (pop-to-buffer buf))
           (select (pop-to-buffer buf t))
           (egg-switch-to-buffer (switch-to-buffer buf))
-          ((interactive-p) (display-buffer buf t))
+          ;;((interactive-p) (display-buffer buf t))
+	  ((invoked-interactively-p) (display-buffer buf t))
           (t (pop-to-buffer buf t)))))
 
 ;;;========================================================
@@ -5420,8 +5430,8 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
 (defun egg-log (&optional all)
   (interactive "P")
   (let* ((egg-internal-current-state 
-          (egg-repo-state (if (interactive-p) :error-if-not-git)))
-         (git-dir (egg-git-dir (interactive-p)))
+	  (egg-repo-state (if (invoked-interactively-p) :error-if-not-git)))
+	 (git-dir (egg-git-dir (invoked-interactively-p)))
          (default-directory (file-name-directory git-dir))
          (buf (egg-get-log-buffer 'create))
          help)
@@ -5633,7 +5643,8 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
 
 (defun egg-search-changes (string)
   (interactive "ssearch history for changes containing: ")
-  (let* ((git-dir (egg-git-dir (interactive-p)))
+  ;;(let* ((git-dir (egg-git-dir (interactive-p)))
+  (let* ((git-dir (egg-git-dir (invoked-interactively-p)))
          (default-directory (file-name-directory git-dir))
          (buf (egg-get-query:commit-buffer 'create))
          (desc (concat (egg-text "Commits containing: " 'egg-text-2)
@@ -6519,10 +6530,10 @@ egg in current buffer.\\<egg-minor-mode-map>
     (egg-minor-mode 1)))
 
 (when (or
-			 (string-match "\\`git version 1.6."
+       (string-match "\\`git version 1.6."
                      (shell-command-to-string 
                       (concat egg-git-command " --version")))
-			 (string-match "\\`git version 1.7."
+       (string-match "\\`git version 1.7."
                      (shell-command-to-string 
                       (concat egg-git-command " --version"))))
   (or (assq 'egg-minor-mode minor-mode-alist)
