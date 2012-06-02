@@ -2689,11 +2689,30 @@ the section.
             (save-match-data
               (split-string hunk-header "[ @,\+,-]+" t)))
            (range
-            (mapcar 'string-to-number range-as-strings)))
-      (if (/= 6 (length range))
-          range
-        (append (subseq range 0 2)
-                  (subseq range 4))))))
+            (mapcar 'string-to-number range-as-strings))
+           (len (length range)))
+      ;; normalize hunk range, sorted in order of most frequent
+      (cond
+       ;; Normal hunk
+       ((= 4 len) range)
+       ;; 3 way diff when merging, never seen >6
+       ((= 6 len) (append (subseq range 0 2)
+                          (subseq range 4 6)))
+       ;; Adding sub-modules
+       ((= 2 len) (append range range))
+       ;; Adding symbolic links
+       ((= 3 len) (append range (list (second range))))
+       ;; Never seen this 5 line numbers hunk, treat as 4
+       ((= 5 len) (subseq range 0 4))
+       ;; Never seen 1 line number hunk
+       ((= 1 len) (list (car range) (car range) (car range) (car range)))
+       ;; never seen hunk header with no line numbers
+       ((zerop len) (list 1 1 1 1))
+       ;; more then 6 numbers
+       (t (warn "Weird hunk header %S" hunk-header)
+          ;; treat as 6 line one
+          (append (subseq range 0 2)
+                  (subseq range 4 6)))))))
 
 (defun egg-ensure-hunk-ranges-cache ()
   "Returns `egg-hunk-ranges-cache' re-creating it if its NIL."
