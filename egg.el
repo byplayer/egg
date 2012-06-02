@@ -6532,13 +6532,9 @@ egg in current buffer.\\<egg-minor-mode-map>
     (make-local-variable 'egg-minor-mode)
     (egg-minor-mode 1)))
 
-(when (or
-       (string-match "\\`git version 1.6."
-                     (shell-command-to-string
-                      (concat egg-git-command " --version")))
-       (string-match "\\`git version 1.7."
-                     (shell-command-to-string
-                      (concat egg-git-command " --version"))))
+(when (string-match "\\`git version 1.\\(6\\|7\\)."
+		    (shell-command-to-string
+		     (concat egg-git-command " --version")))
   (or (assq 'egg-minor-mode minor-mode-alist)
       (setq minor-mode-alist
             (cons '(egg-minor-mode egg-minor-mode-name) minor-mode-alist)))
