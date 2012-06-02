@@ -1370,7 +1370,8 @@ OV-ATTRIBUTES are the extra decorations for each blame chunk."
                 author (plist-get commit-info :author) 
                 subject (plist-get commit-info :subject))
           
-          (goto-line new-line)
+	  (goto-char (point-min))
+	  (forward-line (1- new-line))
           (setq beg (line-beginning-position)
                 end (save-excursion
                       (forward-line num)
@@ -2017,7 +2018,8 @@ not called"
   (interactive (egg-hunk-info-at (point)))
   (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg hunk-ranges)))
     (find-file file)
-    (goto-line line)))
+    (goto-char (point-min))
+    (forward-line (1- line))))
 
 (defun egg-hunk-section-cmd-visit-file-other-window (file hunk-header hunk-beg hunk-end
                                                           hunk-ranges &rest ignored)
@@ -2025,7 +2027,8 @@ not called"
   (interactive (egg-hunk-info-at (point)))
   (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg hunk-ranges)))
     (find-file-other-window file)
-    (goto-line line)))
+    (goto-char (point-min))
+    (forward-line (1- line))))
 
 (defun egg-section-cmd-toggle-hide-show (nav)
   "Toggle the hidden state of the current navigation section of type NAV."
@@ -4415,14 +4418,16 @@ If INIT was not nil, then perform 1st-time initializations as well."
                      (egg-hunk-info-at (point))))
   (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg)))
     (pop-to-buffer (egg-file-get-other-version file sha1 nil t))
-    (goto-line line)))
+    (goto-char (point-min))
+    (forward-line (1- line))))
 
 (defun egg-log-hunk-cmd-visit-file-other-window (sha1 file hunk-header hunk-beg &rest ignored)
   (interactive (cons (get-text-property (point) :commit)
                      (egg-hunk-info-at (point))))
   (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg)))
     (pop-to-buffer (egg-file-get-other-version file sha1 nil t) t)
-    (goto-line line)))
+    (goto-char (point-min))
+    (forward-line (1- line))))
 
 (defun egg-log-buffer-get-rev-at (pos &rest options)
   (let* ((commit (get-text-property pos :commit))
