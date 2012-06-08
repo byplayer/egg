@@ -2512,11 +2512,38 @@ rebase session."
     (egg-buffer-cmd-refresh)))
 
 (defun egg-status-buffer-stage-untracked-file ()
+  "add untracked file(s) to the repository
+
+acts on a single file or on a region which contains the names of
+untracked files"
   (interactive)
-  (let ((file (buffer-substring-no-properties (line-beginning-position) (line-end-position))))
-    (when (egg-sync-do-file file egg-git-command nil nil
-                            (list "add" "--" file))
-      (message "new file %s added" file))))
+  ;; act on multiple files
+  (if mark-active
+      (let ((files ""))
+        (mapc #'(lambda (file)
+                  (egg-sync-0 "add" file)
+                  (setq files (concat files file " ")))
+              (progn
+                (if (< (point) (mark))
+                    (progn
+                      (goto-char (line-beginning-position))
+                      (exchange-point-and-mark)
+                      (goto-char (line-end-position)))
+                  (progn
+                    (goto-char (line-end-position))
+                    (exchange-point-and-mark)
+                    (goto-char (line-beginning-position))))
+                (split-string
+                 (buffer-substring-no-properties (point) (mark)) "\n" t)))
+        (deactivate-mark)
+        (unless (string= files "")
+          (message "new files added: %s" files)))
+    ;; act only on single files
+    (let ((file (buffer-substring-no-properties
+                 (line-beginning-position) (line-end-position))))
+      (when (egg-sync-do-file file egg-git-command nil nil
+                              (list "add" "--" file))
+        (message "new file %s added" file)))))
 
 (defconst egg-untracked-file-map
   (let ((map (make-sparse-keymap "Egg:UntrackedFile")))
