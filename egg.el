@@ -1,12 +1,10 @@
-;;; egg.el -- Emacs Got Git
-;;
-;; A magit fork
-;;
+;;; egg.el --- Emacs Got Git - Emacs interface to Git
+
 ;; Copyright (C) 2008  Linh Dang
 ;; Copyright (C) 2008  Marius Vollmer
 ;; Copyright (C) 2009  Tim Moore
 ;; Copyright (C) 2010  Alexander Prusov
-;; Copyright (C) 2011  byplayer
+;; Copyright (C) 2011-12 byplayer
 ;;
 ;; Author: Bogolisk <bogolisk@gmail.com>
 ;; Created: 19 Aug 2008
