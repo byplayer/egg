@@ -428,7 +428,7 @@ Different versions of git have different names for this subdir."
                  string))
 
 (defcustom egg-show-key-help-in-buffers
-  '(:log :status :diff :file-log :reflog)
+  '(:log :status :diff :file-log :reflog :stash)
   "Display keybinding help in egg special buffers."
   :group 'egg
   :type '(set (const :tag "Status Buffer"   :status)
@@ -5861,10 +5861,9 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
     (define-key map "n" 'egg-stash-buffer-next-stash)
     (define-key map "s" 'egg-status)
     (define-key map "p" 'egg-stash-buffer-prev-stash)
-    (define-key map (kbd "RET") 'egg-stash-buffer-pop)
-    (define-key map (kbd "o") 'egg-stash-buffer-pop)
+    (define-key map "RET" 'egg-stash-buffer-pop)
+    (define-key map "o" 'egg-stash-buffer-pop)
     (define-key map "l" 'egg-log)
-
     map))
 
 (defconst egg-stash-map
@@ -5876,6 +5875,7 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
     (define-key map (kbd "DEL") 'egg-stash-buffer-drop)
     (define-key map "x" 'egg-stash-buffer-drop)
     (define-key map "X" 'egg-stash-buffer-clear)
+    (define-key map "o" 'egg-stash-buffer-pop)
     map))
 
 (defun egg-stash-buffer-next-stash ()
@@ -5902,11 +5902,12 @@ Each remote ref on the commit line has extra extra extra keybindings:\\<egg-log-
    (egg-text "Extra Key Bindings for a Stash line:" 'egg-help-header-2) "\n"
    (egg-pretty-help-text
     "\\<egg-stash-map>"
-    "\\[egg-stash-buffer-apply]:apply\n"
-    "\\[egg-stash-buffer-show]:load details\n"
-    "\\[egg-stash-buffer-drop]:delete stash\n"
+    "\\[egg-stash-buffer-show]:load details  "
+    "\\[egg-section-cmd-toggle-hide-show]:hide/show details  "
+    "\\[egg-stash-buffer-apply]:apply  "
     "\\[egg-stash-buffer-pop]:pop and apply stash\n"
-    "\\[egg-stash-buffer-clear]:delete all\n"
+    "\\[egg-stash-buffer-drop]:delete stash  "
+    "\\[egg-stash-buffer-clear]:delete all  "
     )
    "\n"
    ))
