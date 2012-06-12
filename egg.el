@@ -6576,24 +6576,24 @@ egg in current buffer.\\<egg-minor-mode-map>
 ;;;###autoload
 (defun egg-minor-mode-find-file-hook ()
   (when (egg-is-in-git)
-    (make-local-variable 'egg-minor-mode)
-    (egg-minor-mode 1)))
+    (when (string-match "\\`git version 1.\\(6\\|7\\)."
+                        (shell-command-to-string
+                         (concat egg-git-command " --version")))
+      (or (assq 'egg-minor-mode minor-mode-alist)
+          (setq minor-mode-alist
+                (cons '(egg-minor-mode egg-minor-mode-name) minor-mode-alist)))
+      (setcdr (or (assq 'egg-minor-mode minor-mode-map-alist)
+                  (car (setq minor-mode-map-alist
+                             (cons (list 'egg-minor-mode)
+                                   minor-mode-map-alist))))
+              egg-minor-mode-map)
+      (make-local-variable 'egg-minor-mode)
+      (egg-minor-mode 1))))
 
-(when (string-match "\\`git version 1.\\(6\\|7\\)."
-		    (shell-command-to-string
-		     (concat egg-git-command " --version")))
-  (or (assq 'egg-minor-mode minor-mode-alist)
-      (setq minor-mode-alist
-            (cons '(egg-minor-mode egg-minor-mode-name) minor-mode-alist)))
-
-  (setcdr (or (assq 'egg-minor-mode minor-mode-map-alist)
-              (car (setq minor-mode-map-alist
-                         (cons (list 'egg-minor-mode)
-                               minor-mode-map-alist))))
-          egg-minor-mode-map)
-
-  (add-hook 'find-file-hook 'egg-git-dir)
-  (add-hook 'find-file-hook 'egg-minor-mode-find-file-hook))
+;;;###autoload
+(add-hook 'find-file-hook 'egg-git-dir)
+;;;###autoload
+(add-hook 'find-file-hook 'egg-minor-mode-find-file-hook)
 
 ;;;========================================================
 ;;; tool-tip
