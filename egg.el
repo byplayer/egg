@@ -218,7 +218,7 @@ Many Egg faces inherit from this one by default."
   :group 'egg-faces)
 
 (defface egg-help-key
-  '((t :inherit 'egg-term :height 0.9))
+  '((t :inherit egg-term :height 0.9))
   "Hilight Face in help text."
   :group 'egg-faces)
 
@@ -1755,7 +1755,7 @@ positions of the sequence as well as the decorations.
 
          (regexp
           (concat "^\\(?:"
-                  "diff --git " a ".+" b "\\(.+\\)\\|"	;1 diff header
+                  "diff --git " a ".+ " b "\\(.+\\)\\|"	;1 diff header
                   "diff --cc \\(.+\\)\\|"		;2 cc-diff header
                   "\\(@@ .+@@\\).*\\|"			;3 hunk
                   "\\(@@@ .+@@@\\).*\\|"		;4 cc-hunk
@@ -4446,32 +4446,40 @@ If INIT was not nil, then perform 1st-time initializations as well."
                       egg-log-remote-ref-map
                       egg-log-remote-site-map)))
 
-
-(defun egg-log-diff-cmd-visit-file (file sha1)
-  (interactive (list (car (get-text-property (point) :diff))
-                     (get-text-property (point) :commit)))
-  (pop-to-buffer (egg-file-get-other-version file sha1 nil t)))
-
-(defun egg-log-diff-cmd-visit-file-other-window (file sha1)
-  (interactive (list (car (get-text-property (point) :diff))
-                     (get-text-property (point) :commit)))
-  (pop-to-buffer (egg-file-get-other-version file sha1 nil t) t))
-
-(defun egg-log-hunk-cmd-visit-file (sha1 file hunk-header hunk-beg &rest ignored)
-  (interactive (cons (get-text-property (point) :commit)
-                     (egg-hunk-info-at (point))))
-  (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg)))
-    (pop-to-buffer (egg-file-get-other-version file sha1 nil t))
+(defun egg-log-pop-to-file (file sha1 &optional other-win use-wdir-file line)
+  (pop-to-buffer (if (or (equal (egg-current-sha1) sha1)
+			 use-wdir-file)
+		     (progn
+		       (message "file:%s dir:%s" file default-directory)
+		       (find-file-noselect file))
+		   (egg-file-get-other-version file sha1 nil t))
+		 other-win)
+  (when (numberp line)
     (goto-char (point-min))
     (forward-line (1- line))))
 
-(defun egg-log-hunk-cmd-visit-file-other-window (sha1 file hunk-header hunk-beg &rest ignored)
-  (interactive (cons (get-text-property (point) :commit)
-                     (egg-hunk-info-at (point))))
-  (let ((line (egg-hunk-compute-line-no hunk-header hunk-beg)))
-    (pop-to-buffer (egg-file-get-other-version file sha1 nil t) t)
-    (goto-char (point-min))
-    (forward-line (1- line))))
+(defun egg-log-diff-cmd-visit-file (file sha1 &optional use-wdir-file)
+  (interactive (list (car (get-text-property (point) :diff))
+                     (get-text-property (point) :commit)
+		     current-prefix-arg))
+  (egg-log-pop-to-file file sha1 nil use-wdir-file))
+
+(defun egg-log-diff-cmd-visit-file-other-window (file sha1 &optional use-wdir-file)
+  (interactive (list (car (get-text-property (point) :diff))
+                     (get-text-property (point) :commit)
+		     current-prefix-arg))
+  (egg-log-pop-to-file file sha1 t use-wdir-file))
+
+(defun egg-log-hunk-cmd-visit-file (sha1 use-wdir-file file hunk-header hunk-beg &rest ignored)
+  (interactive (nconc (list (get-text-property (point) :commit) current-prefix-arg)
+		      (egg-hunk-info-at (point))))
+  (egg-log-pop-to-file file sha1 nil use-wdir-file 
+		       (egg-hunk-compute-line-no hunk-header hunk-beg)))
+
+(defun egg-log-hunk-cmd-visit-file-other-window (sha1 use-wdir-file file hunk-header hunk-beg &rest ignored)
+  (interactive (nconc (list (get-text-property (point) :commit) current-prefix-arg)
+		      (egg-hunk-info-at (point))))
+  (egg-log-pop-to-file file sha1 t use-wdir-file (egg-hunk-compute-line-no hunk-header hunk-beg)))
 
 (defun egg-log-buffer-get-rev-at (pos &rest options)
   (let* ((commit (get-text-property pos :commit))
@@ -4999,13 +5007,10 @@ If INIT was not nil, then perform 1st-time initializations as well."
       (goto-char pos)
       (goto-char (1+ (line-end-position)))
       (setq beg (point))
-      (unless (egg-git-ok t "log" "--max-count=1" "-p" "-M" "--no-color"
-                          (concat
-                           "--pretty=format:"
-                           indent-spaces "%ai%n"
-                           indent-spaces "%an%n%n"
-                           "%b%n"
-                           )
+      (unless (egg-git-ok t "show" "--no-color" (concat "--pretty=format:"
+							indent-spaces "%ai%n"
+							indent-spaces "%an%n%n"
+							"%b%n")
                           sha1)
         (error "error calling git log %s!" ref))
       (setq end (point))
