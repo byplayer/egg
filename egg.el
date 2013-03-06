@@ -6737,7 +6737,7 @@ egg in current buffer.\\<egg-minor-mode-map>
 ;;;###autoload
 (defun egg-minor-mode-find-file-hook ()
   (when (egg-is-in-git)
-    (when (string-match "\\`git version 1.\\(6\\|7\\)."
+    (when (string-match "\\`git version 1.\\(6\\|7\\|8\\)."
                         (shell-command-to-string
                          (concat egg-git-command " --version")))
       (or (assq 'egg-minor-mode minor-mode-alist)
