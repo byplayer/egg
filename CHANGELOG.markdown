@@ -1,7 +1,12 @@
 # Egg (Emacs Got Git).
 
 ## 1.1.4
-- add push to the upstream on history buffer
+- add push to the upstream on history buffer(binding key is P)
+- add pull to the upstream on history buffer(binding key is j)
+- add push to the upstream on status buffer(binding key is P)
+- add pull to the upstream on status buffer(binding key is j)
+- add push to the upstream on egg-minor-mode(binding key is egg-prefix(C-xv) P)
+- add pull to the upstream on egg-minor-mode(binding key is egg-prefix(C-xv) j)
 
 ## 1.1.1
 - egg's attempting to autoload 'edmacro thanks Felix S Klock II
