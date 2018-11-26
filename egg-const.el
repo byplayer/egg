@@ -209,6 +209,8 @@ the index. \\{egg-wdir-diff-section-map}")
     (define-key map (kbd "S") 'egg-stage-all-files)
     (define-key map (kbd "U") 'egg-unstage-all-files)
     (define-key map (kbd "SPC") 'egg-section-cmd-toggle-hide-show)
+    (define-key map (kbd "P") 'egg-push-upstream)
+    (define-key map (kbd "j") 'egg-pull-upstream)
     map)
   "Basic keymap for the status buffer.\\{egg-status-base-map}")
 
@@ -257,6 +259,8 @@ the index. \\{egg-wdir-diff-section-map}")
     "\\[egg-buffer-cmd-navigate-prev]:previous block  "
     "\\[egg-buffer-cmd-navigate-next]:next block  "
     "\\[egg-commit-log-edit]:commit staged modifications  "
+    "\\[egg-push-upstream]:push to the upstream  "
+    "\\[egg-pull-upstream]:pull from the upstream  "
     "\\[egg-log]:show repo's history\n"
     "\\[egg-stage-all-files]:stage all modifications  "
     "\\[egg-unstage-all-files]:unstage all modifications  "
@@ -497,6 +501,8 @@ the index. \\{egg-wdir-diff-section-map}")
     (define-key map "n" 'egg-log-buffer-next-ref)
     (define-key map "s" 'egg-status)
     (define-key map "p" 'egg-log-buffer-prev-ref)
+    (define-key map "P" 'egg-push-upstream)
+    (define-key map "j" 'egg-pull-upstream)
     map))
 
 (defconst egg-log-buffer-mode-map
