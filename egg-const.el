@@ -414,7 +414,7 @@ the index. \\{egg-wdir-diff-section-map}")
 
     (define-key map (kbd "u") 'egg-log-buffer-push-to-local)
     (define-key map (kbd "U") 'egg-log-buffer-push-to-remote)
-	
+
     (define-key map [C-down-mouse-2] 'egg-log-popup-commit-line-menu)
     (define-key map [C-mouse-2] 'egg-log-popup-commit-line-menu)
 
@@ -511,7 +511,7 @@ the index. \\{egg-wdir-diff-section-map}")
     (define-key map "L" 'egg-log-buffer-reflog-ref)
     (define-key map "/" 'egg-search-changes)
     (define-key map "D" 'egg-log-buffer-fetch)
-    map)  
+    map)
   "Keymap for the log buffer.\\{egg-log-buffer-mode-map}")
 
 (defconst egg-log-style-buffer-map
